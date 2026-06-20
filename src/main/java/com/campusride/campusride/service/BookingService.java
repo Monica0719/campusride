@@ -1,5 +1,6 @@
 package com.campusride.campusride.service;
 
+
 import com.campusride.campusride.model.Booking;
 import com.campusride.campusride.model.Ride;
 import com.campusride.campusride.model.User;
@@ -14,9 +15,12 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import com.campusride.campusride.service.NotificationProducer;
 
 @Service
 public class BookingService {
+    @Autowired
+    private NotificationProducer notificationProducer;
 
     @Autowired
     private BookingRepository bookingRepository;
@@ -54,67 +58,72 @@ public class BookingService {
     }
 
     // Create a new booking
-    public Booking createBooking(Booking booking,
-                                  Long rideId,
-                                  Long riderId) {
-        // Find the ride
-        Ride ride = rideRepository.findById(rideId)
-            .orElseThrow(() ->
-                new RuntimeException("Ride not found!"));
+   
 
-        // Find the rider
-        User rider = userRepository.findById(riderId)
-            .orElseThrow(() ->
-                new RuntimeException("Rider not found!"));
+        public Booking createBooking(Booking booking,
+                              Long rideId,
+                              Long riderId) {
+    Ride ride = rideRepository.findById(rideId)
+        .orElseThrow(() ->
+            new RuntimeException("Ride not found!"));
 
-        // Check ride is still scheduled
-        if (!ride.getStatus().equals(RideStatus.SCHEDULED)) {
-            throw new RuntimeException("Ride is not available!");
-        }
+    User rider = userRepository.findById(riderId)
+        .orElseThrow(() ->
+            new RuntimeException("Rider not found!"));
 
-        // Check rider hasn't already booked this ride
-        if (bookingRepository.existsByRideIdAndRiderId(
-                rideId, riderId)) {
-            throw new RuntimeException(
-                "You already booked this ride!");
-        }
-
-        // Check seats using Redis (fast & atomic!)
-        String seatKey = getSeatKey(rideId);
-        String cachedSeats = redisTemplate
-            .opsForValue().get(seatKey);
-
-        if (cachedSeats != null) {
-            // Redis has seat count — use atomic decrement
-            Long remainingSeats = redisTemplate
-                .opsForValue().decrement(seatKey);
-
-            if (remainingSeats < 0) {
-                // No seats left — increment back
-                redisTemplate.opsForValue().increment(seatKey);
-                throw new RuntimeException(
-                    "No seats available!");
-            }
-        } else {
-            // Redis doesn't have it — check database
-            if (ride.getAvailableSeats() <= 0) {
-                throw new RuntimeException(
-                    "No seats available!");
-            }
-        }
-
-        // Set booking details
-        booking.setRide(ride);
-        booking.setRider(rider);
-        booking.setStatus(BookingStatus.PENDING);
-        booking.setFarePaid(ride.getFarePerSeat());
-
-        // Decrease available seats in database
-        ride.setAvailableSeats(ride.getAvailableSeats() - 1);
-        rideRepository.save(ride);
-
-        return bookingRepository.save(booking);
+    if (!ride.getStatus().equals(RideStatus.SCHEDULED)) {
+        throw new RuntimeException("Ride is not available!");
     }
+
+    if (bookingRepository.existsByRideIdAndRiderId(
+            rideId, riderId)) {
+        throw new RuntimeException(
+            "You already booked this ride!");
+    }
+
+    String seatKey = getSeatKey(rideId);
+    String cachedSeats = redisTemplate
+        .opsForValue().get(seatKey);
+
+    if (cachedSeats != null) {
+        Long remainingSeats = redisTemplate
+            .opsForValue().decrement(seatKey);
+
+        if (remainingSeats < 0) {
+            redisTemplate.opsForValue().increment(seatKey);
+            throw new RuntimeException(
+                "No seats available!");
+        }
+    } else {
+        if (ride.getAvailableSeats() <= 0) {
+            throw new RuntimeException(
+                "No seats available!");
+        }
+    }
+
+    booking.setRide(ride);
+    booking.setRider(rider);
+    booking.setStatus(BookingStatus.PENDING);
+    booking.setFarePaid(ride.getFarePerSeat());
+
+    ride.setAvailableSeats(ride.getAvailableSeats() - 1);
+    rideRepository.save(ride);
+
+    // Save the booking first
+    Booking savedBooking = bookingRepository.save(booking);
+
+    // Send Kafka notification!
+    String message = String.format(
+        "New booking! %s booked a seat on %s's ride from %s to %s",
+        rider.getName(),
+        ride.getDriver().getName(),
+        ride.getFromLocation(),
+        ride.getToLocation()
+    );
+    notificationProducer.sendBookingNotification(message);
+
+    return savedBooking;
+}
 
     // Get all bookings by rider
     public List<Booking> getBookingsByRider(Long riderId) {

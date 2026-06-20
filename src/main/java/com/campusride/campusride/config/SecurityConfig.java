@@ -32,7 +32,7 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints — no token needed
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/**","/ws/**").permitAll()
                 // All other endpoints — token required
                 .anyRequest().authenticated()
             )
