@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CampusRide — Carpool Smarter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<style>
+  :root {
+    --moss: #2F5D44;
+    --moss-dark: #1F3F2D;
+    --moss-pale: #E4EBE2;
+    --line: #E8A33D;
+    --line-deep: #C97F1E;
+    --rust: #9C4A33;
+    --rust-pale: #F3E3DD;
+    --paper: #ECEFE5;
+    --card: #FBFAF5;
+    --ink: #1C2B22;
+    --muted: #5B6B60;
+    --hair: #DDE3D7;
+    --radius: 14px;
+    --shadow: 0 10px 28px rgba(28, 43, 34, 0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+  h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px; background: var(--moss-dark); color: white;
+  }
+  .brand { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+  .brand .accent { color: var(--line); }
+  .userbar { display: flex; align-items: center; gap: 14px; font-size: 13px; }
+  .role-badge {
+    background: var(--line); color: var(--moss-dark); padding: 3px 10px; border-radius: 999px;
+    font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .btn-ghost {
+    background: transparent; border: 1px solid rgba(255,255,255,0.32); color: white;
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.12); }
+  .btn-ghost:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+
+  .container { max-width: 920px; margin: 0 auto; padding: 36px 22px 80px; }
+
+  .route-divider { border: none; border-top: 2px dotted var(--hair); margin: 30px 0; }
+
+  .route-line { display: flex; align-items: center; gap: 10px; font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 15px; }
+  .route-line .stop { white-space: nowrap; }
+  .route-line .track {
+    flex: 1; min-width: 24px; height: 2px; border-top: 2px dotted var(--line); position: relative;
+  }
+  .route-line .track::before, .route-line .track::after {
+    content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--line); top: -4px;
+  }
+  .route-line .track::before { left: 0; }
+  .route-line .track::after { right: 0; }
+
+  .auth-wrap { max-width: 420px; margin: 44px auto 0; }
+  .auth-hero {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted);
+    text-align: center; margin-bottom: 18px; letter-spacing: 0.02em;
+  }
+  .accent-dots { color: var(--line); font-weight: 600; }
+  .auth-card { background: var(--card); border: 1px solid var(--hair); border-radius: var(--radius); box-shadow: var(--shadow); padding: 30px; }
+  .auth-tabs { display: flex; gap: 6px; margin-bottom: 22px; background: var(--moss-pale); padding: 4px; border-radius: 10px; }
+  .auth-tab {
+    flex: 1; text-align: center; padding: 9px 0; border-radius: 8px; cursor: pointer;
+    font-weight: 600; font-size: 14px; color: var(--moss-dark); font-family: inherit;
+    border: none; background: transparent;
+  }
+  .auth-tab.active { background: var(--moss); color: white; }
+  .auth-tab:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+
+  label {
+    display: block; font-size: 12px; font-weight: 600; color: var(--muted);
+    margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  input, select {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--hair); border-radius: 9px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  input:focus, select:focus { outline: 2px solid var(--line); outline-offset: 1px; border-color: var(--moss); }
+
+  .btn {
+    background: var(--moss); color: white; border: none; padding: 11px 18px;
+    border-radius: 9px; font-weight: 700; font-size: 14px; cursor: pointer; margin-top: 18px; width: 100%;
+  }
+  .btn:hover { background: var(--moss-dark); }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+  .btn-coral { background: var(--rust); }
+  .btn-coral:hover { background: #7E3A28; }
+  .btn-outline { background: transparent; color: var(--moss); border: 1.5px solid var(--moss); }
+  .btn-outline:hover { background: var(--moss-pale); }
+  .btn-small { width: auto; padding: 7px 14px; font-size: 13px; margin-top: 0; }
+
+  .section { margin-bottom: 34px; }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .section-head h2 { font-size: 18px; }
+  .eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .card { background: var(--card); border: 1px solid var(--hair); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 14px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+  .ride-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .ride-meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  .status-tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 3px 9px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 10px;
+  }
+  .status-tag .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .status-SCHEDULED { background: var(--moss-pale); color: var(--moss-dark); }
+  .status-ACTIVE { background: #FBE9CC; color: var(--line-deep); }
+  .status-ACTIVE .dot { animation: pulse 1.6s infinite; }
+  .status-COMPLETED { background: #EDEFE9; color: var(--muted); }
+  .status-CANCELLED { background: var(--rust-pale); color: var(--rust); }
+  .status-PENDING { background: #FBE9CC; color: var(--line-deep); }
+  .status-CONFIRMED { background: var(--moss-pale); color: var(--moss-dark); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) { .status-ACTIVE .dot { animation: none; } }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 22px 0; text-align: center; font-family: 'IBM Plex Mono', monospace; }
+
+  .autocomplete-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+    background: var(--card); border: 1.5px solid var(--moss); border-top: none;
+    border-radius: 0 0 9px 9px; box-shadow: var(--shadow); max-height: 220px; overflow-y: auto;
+  }
+  .autocomplete-item { padding: 9px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--hair); }
+  .autocomplete-item:last-child { border-bottom: none; }
+  .autocomplete-item:hover { background: var(--moss-pale); }
+
+  #toast { position: fixed; top: 18px; right: 18px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { background: var(--ink); color: white; padding: 12px 18px; border-radius: 9px; font-size: 13px; box-shadow: var(--shadow); animation: slidein 0.2s ease; }
+  .toast-item.error { background: var(--rust); }
+  .toast-item.success { background: var(--moss); }
+  @keyframes slidein { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .inline-form { margin-top: 14px; padding-top: 14px; border-top: 2px dotted var(--hair); }
+  .helper { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  @media (max-width: 640px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .topbar { padding: 14px 18px; }
+    .container { padding: 26px 16px 60px; }
+  }
+</style>
+</head>
+<body>
+  <div id="toast"></div>
+  <header class="topbar">
+    <div class="brand">🚍 Campus<span class="accent">Ride</span></div>
+    <div class="userbar" id="userbar"></div>
+  </header>
+  <main class="container" id="content"></main>
+
+<script>
+// Change this if your backend runs somewhere other than localhost:8081
+const API_BASE = 'http://localhost:8081';
+
+let state = { token: null, userId: null, role: null, name: null };
+let authMode = 'login';
+
+function nowForBackend() {
+  return new Date().toISOString().slice(0, 19);
+}
+
+function toast(message, type = 'success') {
+  const el = document.getElementById('toast');
+  const item = document.createElement('div');
+  item.className = 'toast-item ' + type;
+  item.textContent = message;
+  el.appendChild(item);
+  setTimeout(() => item.remove(), 3500);
+}
+
+async function api(path, options = {}) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  const res = await fetch(API_BASE + path, Object.assign({}, options, { headers }));
+  if (!res.ok) {
+    let detail = '';
+    try { detail = await res.text(); } catch (e) {}
+    throw new Error('Request failed (' + res.status + ')' + (detail ? ': ' + detail : ''));
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function val(id) { return document.getElementById(id).value; }
+
+function formatDate(iso) {
+  try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+}
+
+// ---------- GEOCODING (address/city/zip -> lat/lng) ----------
+// Uses OpenStreetMap's free Nominatim service so people never have to
+// type coordinates themselves — just a place name, address, or zip code.
+
+const geocodeCache = {};
+
+async function geocodeAddress(text) {
+  const query = (text || '').trim();
+  if (!query) return null;
+  if (geocodeCache[query]) return geocodeCache[query];
+
+  try {
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query);
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const results = await res.json();
+    if (!results || results.length === 0) return null;
+    const coords = { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+    geocodeCache[query] = coords;
+    return coords;
+  } catch (err) {
+    return null;
+  }
+}
+
+function routeLineHtml(from, to) {
+  return `<div class="route-line"><span class="stop">${from}</span><span class="track"></span><span class="stop">${to}</span></div>`;
+}
+
+// ---------- ADDRESS AUTOCOMPLETE ----------
+// Shows a dropdown of place suggestions as the person types, so they
+// can pick from real matching places instead of guessing spelling.
+
+function getSelectedCountry() {
+  const rc = document.getElementById('r_country');
+  const sc = document.getElementById('s_country');
+  if (rc) return rc.value;
+  if (sc) return sc.value;
+  return '';
+}
+
+function attachAutocomplete(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  input.setAttribute('autocomplete', 'off');
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'relative';
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'autocomplete-dropdown';
+  dropdown.style.display = 'none';
+  wrapper.appendChild(dropdown);
+
+  let debounceTimer = null;
+  let currentResults = [];
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const query = input.value.trim();
+    if (query.length < 3) { dropdown.style.display = 'none'; return; }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const country = getSelectedCountry();
+        const fullQuery = (country && country !== 'Other') ? query + ', ' + country : query;
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(fullQuery);
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) return;
+        currentResults = await res.json();
+        if (!currentResults || currentResults.length === 0) { dropdown.style.display = 'none'; return; }
+        dropdown.innerHTML = currentResults.map((r, i) =>
+          `<div class="autocomplete-item" data-idx="${i}">${r.display_name}</div>`
+        ).join('');
+        dropdown.style.display = 'block';
+      } catch (err) { /* fail silently, manual typing still works */ }
+    }, 400);
+  });
+
+  dropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.autocomplete-item');
+    if (!item) return;
+    const result = currentResults[parseInt(item.dataset.idx)];
+    input.value = result.display_name;
+    geocodeCache[result.display_name] = { lat: parseFloat(result.lat), lng: parseFloat(result.lon) };
+    dropdown.style.display = 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrapper.contains(e.target)) dropdown.style.display = 'none';
+  });
+}
+
+// ---------- LIVE NOTIFICATIONS ----------
+
+let stompClient = null;
+
+function connectNotifications() {
+  const socket = new SockJS(API_BASE + '/ws');
+  stompClient = Stomp.over(socket);
+  stompClient.debug = function() {};
+  stompClient.connect({}, function () {
+    const topic = state.role === 'DRIVER'
+      ? '/topic/driver/' + state.userId + '/notifications'
+      : '/topic/rider/' + state.userId + '/notifications';
+    stompClient.subscribe(topic, function (msg) {
+      toast(msg.body);
+      if (state.role === 'DRIVER' && document.getElementById('myRides')) loadMyRides();
+      if (state.role === 'RIDER' && document.getElementById('myBookings')) loadMyBookings();
+    });
+  });
+}
+
+function disconnectNotifications() {
+  if (stompClient) {
+    try { stompClient.disconnect(); } catch (e) {}
+    stompClient = null;
+  }
+}
+
+// ---------- USER BAR ----------
+
+function renderUserBar() {
+  const bar = document.getElementById('userbar');
+  if (!state.token) { bar.innerHTML = ''; return; }
+  bar.innerHTML = `
+    <span class="role-badge">${state.role}</span>
+    <span>${state.name}</span>
+    <button class="btn-ghost" id="logoutBtn">Log out</button>
+  `;
+  document.getElementById('logoutBtn').onclick = () => {
+    disconnectNotifications();
+    state = { token: null, userId: null, role: null, name: null };
+    renderUserBar();
+    renderAuth();
+  };
+}
+
+// ---------- AUTH ----------
+
+function renderAuth() {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-hero">Tambaram <span class="accent-dots">●┄┄┄┄┄┄●</span> UT Austin · 8:00 AM · 2 seats left</div>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab ${authMode === 'login' ? 'active' : ''}" data-mode="login">Log in</button>
+          <button type="button" class="auth-tab ${authMode === 'register' ? 'active' : ''}" data-mode="register">Register</button>
+        </div>
+        ${authMode === 'login' ? loginFormHtml() : registerFormHtml()}
+      </div>
+    </div>
+  `;
+  content.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.onclick = () => { authMode = tab.dataset.mode; renderAuth(); };
+  });
+  if (authMode === 'login') {
+    document.getElementById('loginForm').onsubmit = handleLogin;
+  } else {
+    document.getElementById('registerForm').onsubmit = handleRegister;
+  }
+}
+
+function loginFormHtml() {
+  return `
+    <h2>Welcome back</h2>
+    <p class="helper" style="margin-top:6px;">Log in to find or post a ride.</p>
+    <form id="loginForm">
+      <label>Email</label>
+      <input type="email" id="loginEmail" required />
+      <label>Password</label>
+      <input type="password" id="loginPassword" required />
+      <button class="btn" type="submit">Log in</button>
+    </form>
+  `;
+}
+
+function registerFormHtml() {
+  return `
+    <h2>Create an account</h2>
+    <p class="helper" style="margin-top:6px;">Tell us a bit about yourself.</p>
+    <form id="registerForm">
+      <label>Full name</label>
+      <input type="text" id="regName" required />
+      <label>College email</label>
+      <input type="email" id="regEmail" required />
+      <label>Password</label>
+      <input type="password" id="regPassword" required minlength="6" />
+      <div class="grid-2">
+        <div><label>Phone</label><input type="text" id="regPhone" required /></div>
+        <div><label>I am a</label>
+          <select id="regRole">
+            <option value="RIDER">Rider</option>
+            <option value="DRIVER">Driver</option>
+          </select>
+        </div>
+      </div>
+      <label>College name</label>
+      <input type="text" id="regCollege" required />
+      <button class="btn" type="submit">Create account</button>
+    </form>
+  `;
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  try {
+    const data = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: val('loginEmail'), password: val('loginPassword') })
+    });
+    onAuthSuccess(data);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const body = {
+    name: val('regName'), email: val('regEmail'), password: val('regPassword'),
+    phone: val('regPhone'), collegeName: val('regCollege'), role: val('regRole'),
+    rating: 0.0, isVerified: false, createdAt: nowForBackend()
+  };
+  try {
+    const data = await api('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
+    onAuthSuccess(data);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function onAuthSuccess(data) {
+  state.token = data.token; state.userId = data.userId; state.role = data.role; state.name = data.email;
+  toast('Welcome! You are logged in.');
+  renderUserBar();
+  connectNotifications();
+  renderDashboard();
+}
+
+function renderDashboard() {
+  state.role === 'DRIVER' ? renderDriverDashboard() : renderRiderDashboard();
+}
+
+// ---------- DRIVER ----------
+
+function renderDriverDashboard() {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="section">
+      <div class="eyebrow">Post a route</div>
+      <div class="section-head"><h2>Offer a ride</h2></div>
+      <div class="card">
+        <form id="rideForm">
+          <label>Country</label>
+          <select id="r_country">
+            <option value="India">India</option>
+            <option value="United States">United States</option>
+            <option value="United Kingdom">United Kingdom</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="Germany">Germany</option>
+            <option value="France">France</option>
+            <option value="Other">Other</option>
+          </select>
+          <label>From — type and pick from suggestions</label>
+          <input id="r_from" placeholder="e.g. Hyderabad, Telangana" required />
+          <label>To — type and pick from suggestions</label>
+          <input id="r_to" placeholder="e.g. Warangal, Telangana" required />
+          <label>Departure time</label>
+          <input id="r_departure" type="datetime-local" required />
+          <div class="grid-2">
+            <div><label>Total seats</label><input id="r_seats" type="number" min="1" value="3" required /></div>
+            <div><label>Fare per seat ($)</label><input id="r_fare" type="number" min="0" step="0.5" value="5" required /></div>
+          </div>
+          <div class="grid-2">
+            <div><label>Vehicle number</label><input id="r_vehNum" required /></div>
+            <div><label>Vehicle type</label><input id="r_vehType" placeholder="Car / Bike" required /></div>
+          </div>
+          <button class="btn" type="submit" id="postRideBtn">Post ride</button>
+        </form>
+      </div>
+    </div>
+    <div class="route-divider"></div>
+    <div class="section">
+      <div class="eyebrow">Departure board</div>
+      <div class="section-head">
+        <h2>My rides</h2>
+        <button class="btn btn-outline btn-small" id="refreshRidesBtn">Refresh</button>
+      </div>
+      <div id="myRides"><div class="empty">Loading…</div></div>
+    </div>
+  `;
+  document.getElementById('rideForm').onsubmit = handlePostRide;
+  document.getElementById('refreshRidesBtn').onclick = loadMyRides;
+  attachAutocomplete('r_from');
+  attachAutocomplete('r_to');
+  loadMyRides();
+}
+
+async function handlePostRide(e) {
+  e.preventDefault();
+  const btn = document.getElementById('postRideBtn');
+  btn.disabled = true;
+  btn.textContent = 'Locating addresses…';
+  try {
+    const country = val('r_country');
+    const fromText = val('r_from');
+    const toText = val('r_to');
+
+    // If user picked from autocomplete, coordinates are cached under the full display name.
+    // Otherwise append country for better geocoding accuracy.
+    const fromQuery = geocodeCache[fromText] ? fromText : fromText + ', ' + country;
+    const toQuery   = geocodeCache[toText]   ? toText   : toText   + ', ' + country;
+
+    const [fromCoords, toCoords] = await Promise.all([
+      geocodeAddress(fromQuery),
+      geocodeAddress(toQuery)
+    ]);
+    if (!fromCoords) throw new Error('Could not find "' + fromText + '". Try picking from the dropdown suggestions.');
+    if (!toCoords)   throw new Error('Could not find "' + toText   + '". Try picking from the dropdown suggestions.');
+
+    const body = {
+      fromLocation: fromText, toLocation: toText,
+      fromLatitude: fromCoords.lat, fromLongitude: fromCoords.lng,
+      toLatitude: toCoords.lat, toLongitude: toCoords.lng,
+      departureTime: val('r_departure') + ':00',
+      totalSeats: parseInt(val('r_seats')), farePerSeat: parseFloat(val('r_fare')),
+      vehicleNumber: val('r_vehNum'), vehicleType: val('r_vehType'),
+      createdAt: nowForBackend()
+    };
+    await api('/api/rides/' + state.userId, { method: 'POST', body: JSON.stringify(body) });
+    toast('Ride posted!');
+    document.getElementById('rideForm').reset();
+    loadMyRides();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Post ride';
+  }
+}
+
+async function loadMyRides() {
+  const box = document.getElementById('myRides');
+  try {
+    const rides = await api('/api/rides/driver/' + state.userId);
+    if (!rides || rides.length === 0) { box.innerHTML = '<div class="card empty">No rides posted yet.</div>'; return; }
+    box.innerHTML = rides.map(rideCardHtml).join('');
+    rides.forEach(bindRideActions);
+  } catch (err) { box.innerHTML = '<div class="card empty">Could not load rides.</div>'; }
+}
+
+function rideCardHtml(r) {
+  return `
+    <div class="card" data-ride-id="${r.id}">
+      <div class="ride-card">
+        <div>
+          ${routeLineHtml(r.fromLocation, r.toLocation)}
+          <div class="ride-meta">${formatDate(r.departureTime)} · ${r.availableSeats}/${r.totalSeats} seats · $${r.farePerSeat}/seat</div>
+          <span class="status-tag status-${r.status}"><span class="dot"></span>${r.status}</span>
+        </div>
+        <div class="actions">
+          ${r.status === 'SCHEDULED' ? `<button class="btn btn-outline btn-small" data-action="start">Start ride</button><button class="btn btn-coral btn-small" data-action="cancel">Cancel</button>` : ''}
+          ${r.status === 'ACTIVE' ? `<button class="btn btn-small" data-action="complete">Complete ride</button>` : ''}
+          <button class="btn btn-outline btn-small" data-action="toggleBookings">View bookings</button>
+        </div>
+      </div>
+      <div class="inline-form" style="display:none;" data-bookings-panel>
+        <div data-bookings-list class="empty">Loading…</div>
+      </div>
+    </div>
+  `;
+}
+
+function bindRideActions(r) {
+  const card = document.querySelector(`[data-ride-id="${r.id}"]`);
+  if (!card) return;
+  card.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.onclick = async () => {
+      const action = btn.dataset.action;
+      if (action === 'toggleBookings') {
+        const panel = card.querySelector('[data-bookings-panel]');
+        const willShow = panel.style.display === 'none';
+        panel.style.display = willShow ? 'block' : 'none';
+        if (willShow) loadRideBookingsPanel(r.id);
+        return;
+      }
+      try {
+        if (action === 'start') await api(`/api/rides/${r.id}/start/${state.userId}`, { method: 'PUT' });
+        if (action === 'complete') await api(`/api/rides/${r.id}/complete`, { method: 'PUT' });
+        if (action === 'cancel') await api(`/api/rides/${r.id}/cancel/${state.userId}`, { method: 'PUT' });
+        toast('Updated!');
+        loadMyRides();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  });
+}
+
+async function loadRideBookingsPanel(rideId) {
+  const list = document.querySelector(`[data-ride-id="${rideId}"] [data-bookings-list]`);
+  if (!list) return;
+  list.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const bookings = await api('/api/bookings/ride/' + rideId);
+    if (!bookings || bookings.length === 0) {
+      list.innerHTML = '<div class="empty">No bookings yet for this ride.</div>';
+      return;
+    }
+    list.innerHTML = bookings.map(driverBookingRowHtml).join('');
+    bookings.forEach(b => {
+      const row = list.querySelector(`[data-driver-booking-id="${b.id}"]`);
+      const btn = row && row.querySelector('[data-action="confirmBooking"]');
+      if (btn) {
+        btn.onclick = async () => {
+          try {
+            await api(`/api/bookings/${b.id}/confirm`, { method: 'PUT' });
+            toast('Booking confirmed!');
+            loadRideBookingsPanel(rideId);
+          } catch (err) { toast(err.message, 'error'); }
+        };
+      }
+    });
+  } catch (err) {
+    list.innerHTML = '<div class="empty">Could not load bookings.</div>';
+  }
+}
+
+function driverBookingRowHtml(b) {
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--hair);" data-driver-booking-id="${b.id}">
+      <div>
+        <div style="font-weight:600;font-size:13px;">${b.rider.name}</div>
+        <div class="ride-meta" style="margin-top:2px;">${b.pickupPoint} · $${b.farePaid}</div>
+        <div class="ride-meta" style="margin-top:2px;">📞 ${b.rider.phone}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="status-tag status-${b.status}" style="margin-top:0;"><span class="dot"></span>${b.status}</span>
+        ${b.status === 'PENDING' ? `<button class="btn btn-small" data-action="confirmBooking">Confirm</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ---------- RIDER ----------
+
+function renderRiderDashboard() {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="section">
+      <div class="eyebrow">Find a route</div>
+      <div class="section-head"><h2>Find a ride</h2></div>
+      <div class="card">
+        <form id="searchForm">
+          <label>Country</label>
+          <select id="s_country">
+            <option value="India">India</option>
+            <option value="United States">United States</option>
+            <option value="United Kingdom">United Kingdom</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="Germany">Germany</option>
+            <option value="France">France</option>
+            <option value="Other">Other</option>
+          </select>
+          <label>Your pickup location</label>
+          <input id="s_pickup" placeholder="e.g. Hyderabad, Telangana" required />
+          <label>Your destination</label>
+          <input id="s_drop" placeholder="e.g. Bhongir, Telangana" required />
+          <label>How far off the direct route is okay? (km)</label>
+          <input id="s_radius" type="number" value="20" min="1" />
+          <button class="btn" type="submit" id="searchRidesBtn">Search rides</button>
+        </form>
+      </div>
+      <div id="searchResults"></div>
+    </div>
+    <div class="route-divider"></div>
+    <div class="section">
+      <div class="eyebrow">Your trips</div>
+      <div class="section-head">
+        <h2>My bookings</h2>
+        <button class="btn btn-outline btn-small" id="refreshBookingsBtn">Refresh status</button>
+      </div>
+      <div id="myBookings"><div class="empty">Loading…</div></div>
+    </div>
+  `;
+  document.getElementById('searchForm').onsubmit = handleSearch;
+  document.getElementById('refreshBookingsBtn').onclick = loadMyBookings;
+  attachAutocomplete('s_pickup');
+  attachAutocomplete('s_drop');
+  loadMyBookings();
+}
+
+async function handleSearch(e) {
+  e.preventDefault();
+  const box = document.getElementById('searchResults');
+  const btn = document.getElementById('searchRidesBtn');
+  box.innerHTML = '<div class="empty">Locating your route…</div>';
+  btn.disabled = true;
+  try {
+    const country     = val('s_country');
+    const pickupText  = val('s_pickup');
+    const dropText    = val('s_drop');
+
+    const pickupQuery = geocodeCache[pickupText] ? pickupText : pickupText + ', ' + country;
+    const dropQuery   = geocodeCache[dropText]   ? dropText   : dropText   + ', ' + country;
+
+    const [pickupCoords, dropCoords] = await Promise.all([
+      geocodeAddress(pickupQuery),
+      geocodeAddress(dropQuery)
+    ]);
+
+    if (!pickupCoords) { box.innerHTML = '<div class="card empty">Could not find your pickup location. Try picking from the dropdown.</div>'; return; }
+    if (!dropCoords)   { box.innerHTML = '<div class="card empty">Could not find your destination. Try picking from the dropdown.</div>'; return; }
+
+    box.innerHTML = '<div class="empty">Searching…</div>';
+    const params = new URLSearchParams({
+      pickupLat: pickupCoords.lat, pickupLng: pickupCoords.lng,
+      dropLat: dropCoords.lat, dropLng: dropCoords.lng,
+      radius: val('s_radius') || '20'
+    });
+    const rides = await api('/api/rides/search?' + params.toString());
+    if (!rides || rides.length === 0) { box.innerHTML = '<div class="card empty">No rides found along that route. Try a bigger radius.</div>'; return; }
+    box.innerHTML = rides.map(searchResultHtml).join('');
+    rides.forEach(bindBookButton);
+  } catch (err) { box.innerHTML = '<div class="card empty">Search failed.</div>'; toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+function searchResultHtml(r) {
+  return `
+    <div class="card" data-search-ride="${r.id}">
+      <div class="ride-card">
+        <div>
+          ${routeLineHtml(r.fromLocation, r.toLocation)}
+          <div class="ride-meta">${formatDate(r.departureTime)} · ${r.driver.name} · ${r.availableSeats} seats left · $${r.farePerSeat}/seat</div>
+        </div>
+        <button class="btn btn-coral btn-small" data-action="toggleBook">Book this ride</button>
+      </div>
+      <div class="inline-form" style="display:none;" data-book-form>
+        <label>Pickup point (address, intersection, or landmark)</label>
+        <input id="pickup-${r.id}" data-field="pickupPoint" placeholder="Where should the driver pick you up?" />
+        <button class="btn btn-small" data-action="confirmBook" style="margin-top:14px;">Confirm booking</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindBookButton(r) {
+  const card = document.querySelector(`[data-search-ride="${r.id}"]`);
+  if (!card) return;
+  const form = card.querySelector('[data-book-form]');
+  card.querySelector('[data-action="toggleBook"]').onclick = () => {
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
+  attachAutocomplete('pickup-' + r.id);
+  card.querySelector('[data-action="confirmBook"]').onclick = async () => {
+    const confirmBtn = card.querySelector('[data-action="confirmBook"]');
+    const pickupPoint = card.querySelector('[data-field="pickupPoint"]').value;
+    if (!pickupPoint) { toast('Add a pickup point first', 'error'); return; }
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Locating…';
+    try {
+      const coords = await geocodeAddress(pickupPoint);
+      const pickupLatitude = coords ? coords.lat : r.fromLatitude;
+      const pickupLongitude = coords ? coords.lng : r.fromLongitude;
+      await api(`/api/bookings/${r.id}/rider/${state.userId}`, {
+        method: 'POST',
+        body: JSON.stringify({ pickupPoint, pickupLatitude, pickupLongitude, bookedAt: nowForBackend() })
+      });
+      toast('Seat booked!');
+      loadMyBookings();
+      form.style.display = 'none';
+    } catch (err) { toast(err.message, 'error'); }
+    finally { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm booking'; }
+  };
+}
+
+async function loadMyBookings() {
+  const box = document.getElementById('myBookings');
+  try {
+    const bookings = await api('/api/bookings/rider/' + state.userId);
+    if (!bookings || bookings.length === 0) { box.innerHTML = '<div class="card empty">No bookings yet.</div>'; return; }
+    box.innerHTML = bookings.map(bookingCardHtml).join('');
+    bookings.forEach(bindBookingActions);
+  } catch (err) { box.innerHTML = '<div class="card empty">Could not load bookings.</div>'; }
+}
+
+function bookingCardHtml(b) {
+  return `
+    <div class="card ride-card" data-booking-id="${b.id}">
+      <div>
+        ${routeLineHtml(b.ride.fromLocation, b.ride.toLocation)}
+        <div class="ride-meta">${formatDate(b.ride.departureTime)} · Driver: ${b.ride.driver.name} · $${b.farePaid}</div>
+        <div class="ride-meta">📞 ${b.ride.driver.phone}</div>
+        <span class="status-tag status-${b.status}"><span class="dot"></span>${b.status}</span>
+      </div>
+      <div class="actions">
+        ${(b.status === 'PENDING' || b.status === 'CONFIRMED') ? `<button class="btn btn-coral btn-small" data-action="cancelBooking">Cancel</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function bindBookingActions(b) {
+  const card = document.querySelector(`[data-booking-id="${b.id}"]`);
+  if (!card) return;
+  const btn = card.querySelector('[data-action="cancelBooking"]');
+  if (!btn) return;
+  btn.onclick = async () => {
+    try {
+      await api(`/api/bookings/${b.id}/cancel/${state.userId}`, { method: 'PUT' });
+      toast('Booking cancelled');
+      loadMyBookings();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+// ---------- INIT ----------
+renderAuth();
+</script>
+</body>
+</html>
