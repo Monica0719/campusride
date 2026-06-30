@@ -1,24 +1,29 @@
 package com.campusride.campusride.service;
 
-
-import com.campusride.campusride.model.Booking;
-import com.campusride.campusride.model.Ride;
-import com.campusride.campusride.model.User;
-import com.campusride.campusride.enums.BookingStatus;
-import com.campusride.campusride.enums.RideStatus;
-import com.campusride.campusride.repository.BookingRepository;
-import com.campusride.campusride.repository.RideRepository;
-import com.campusride.campusride.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import com.campusride.campusride.service.NotificationProducer;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+import com.campusride.campusride.enums.BookingStatus;
+import com.campusride.campusride.enums.RideStatus;
+import com.campusride.campusride.model.Booking;
+import com.campusride.campusride.model.Ride;
+import com.campusride.campusride.model.User;
+import com.campusride.campusride.repository.BookingRepository;
+import com.campusride.campusride.repository.RideRepository;
+import com.campusride.campusride.repository.UserRepository;
 
 @Service
 public class BookingService {
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
     @Autowired
     private NotificationProducer notificationProducer;
 
@@ -34,12 +39,10 @@ public class BookingService {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    // Redis key pattern for ride seats
     private String getSeatKey(Long rideId) {
         return "ride:seats:" + rideId;
     }
 
-    // Initialize seats in Redis when ride is created
     public void initializeSeatsInRedis(Long rideId, int totalSeats) {
         String key = getSeatKey(rideId);
         redisTemplate.opsForValue().set(
@@ -49,7 +52,6 @@ public class BookingService {
         );
     }
 
-    // Get available seats from Redis
     public Integer getAvailableSeatsFromRedis(Long rideId) {
         String key = getSeatKey(rideId);
         String value = redisTemplate.opsForValue().get(key);
@@ -57,122 +59,168 @@ public class BookingService {
         return Integer.parseInt(value);
     }
 
-    // Create a new booking
-   
+    public Booking createBooking(Booking booking,
+                          Long rideId,
+                          Long riderId) {
+        Ride ride = rideRepository.findById(rideId)
+            .orElseThrow(() ->
+                new RuntimeException("Ride not found!"));
 
-        public Booking createBooking(Booking booking,
-                              Long rideId,
-                              Long riderId) {
-    Ride ride = rideRepository.findById(rideId)
-        .orElseThrow(() ->
-            new RuntimeException("Ride not found!"));
+        User rider = userRepository.findById(riderId)
+            .orElseThrow(() ->
+                new RuntimeException("Rider not found!"));
 
-    User rider = userRepository.findById(riderId)
-        .orElseThrow(() ->
-            new RuntimeException("Rider not found!"));
-
-    if (!ride.getStatus().equals(RideStatus.SCHEDULED)) {
-        throw new RuntimeException("Ride is not available!");
-    }
-
-    if (bookingRepository.existsByRideIdAndRiderId(
-            rideId, riderId)) {
-        throw new RuntimeException(
-            "You already booked this ride!");
-    }
-
-    String seatKey = getSeatKey(rideId);
-    String cachedSeats = redisTemplate
-        .opsForValue().get(seatKey);
-
-    if (cachedSeats != null) {
-        Long remainingSeats = redisTemplate
-            .opsForValue().decrement(seatKey);
-
-        if (remainingSeats < 0) {
-            redisTemplate.opsForValue().increment(seatKey);
-            throw new RuntimeException(
-                "No seats available!");
+        if (!ride.getStatus().equals(RideStatus.SCHEDULED)) {
+            throw new RuntimeException("Ride is not available!");
         }
-    } else {
-        if (ride.getAvailableSeats() <= 0) {
+
+        if (bookingRepository.existsByRideIdAndRiderId(
+                rideId, riderId)) {
             throw new RuntimeException(
-                "No seats available!");
+                "You already booked this ride!");
         }
+
+        String seatKey = getSeatKey(rideId);
+        String cachedSeats = redisTemplate
+            .opsForValue().get(seatKey);
+
+        if (cachedSeats != null) {
+            Long remainingSeats = redisTemplate
+                .opsForValue().decrement(seatKey);
+
+            if (remainingSeats < 0) {
+                redisTemplate.opsForValue().increment(seatKey);
+                throw new RuntimeException(
+                    "No seats available!");
+            }
+        } else {
+            if (ride.getAvailableSeats() <= 0) {
+                throw new RuntimeException(
+                    "No seats available!");
+            }
+        }
+
+        booking.setRide(ride);
+        booking.setRider(rider);
+        booking.setStatus(BookingStatus.PENDING);
+        booking.setFarePaid(ride.getFarePerSeat());
+
+        ride.setAvailableSeats(ride.getAvailableSeats() - 1);
+        rideRepository.save(ride);
+
+        Booking savedBooking = bookingRepository.save(booking);
+
+        String message = String.format(
+            "New booking! %s booked a seat on %s's ride from %s to %s",
+            rider.getName(),
+            ride.getDriver().getName(),
+            ride.getFromLocation(),
+            ride.getToLocation()
+        );
+        notificationProducer.sendBookingNotification(message);
+
+        messagingTemplate.convertAndSend(
+            "/topic/driver/" + ride.getDriver().getId() + "/notifications",
+            message
+        );
+
+        return savedBooking;
     }
 
-    booking.setRide(ride);
-    booking.setRider(rider);
-    booking.setStatus(BookingStatus.PENDING);
-    booking.setFarePaid(ride.getFarePerSeat());
-
-    ride.setAvailableSeats(ride.getAvailableSeats() - 1);
-    rideRepository.save(ride);
-
-    // Save the booking first
-    Booking savedBooking = bookingRepository.save(booking);
-
-    // Send Kafka notification!
-    String message = String.format(
-        "New booking! %s booked a seat on %s's ride from %s to %s",
-        rider.getName(),
-        ride.getDriver().getName(),
-        ride.getFromLocation(),
-        ride.getToLocation()
-    );
-    notificationProducer.sendBookingNotification(message);
-
-    return savedBooking;
-}
-
-    // Get all bookings by rider
     public List<Booking> getBookingsByRider(Long riderId) {
         return bookingRepository.findByRiderId(riderId);
     }
 
-    // Get all bookings for a ride
     public List<Booking> getBookingsByRide(Long rideId) {
         return bookingRepository.findByRideId(rideId);
     }
 
-    // Get booking by id
     public Optional<Booking> getBookingById(Long id) {
         return bookingRepository.findById(id);
     }
 
-    // Cancel a booking
     public Booking cancelBooking(Long bookingId, Long riderId) {
         Booking booking = bookingRepository.findById(bookingId)
             .orElseThrow(() ->
                 new RuntimeException("Booking not found!"));
 
-        // Only rider who booked can cancel
         if (!booking.getRider().getId().equals(riderId)) {
             throw new RuntimeException(
                 "You can only cancel your own booking!");
         }
 
-        // Give seat back in database
         Ride ride = booking.getRide();
         ride.setAvailableSeats(ride.getAvailableSeats() + 1);
         rideRepository.save(ride);
 
-        // Give seat back in Redis too!
         String seatKey = getSeatKey(ride.getId());
         if (redisTemplate.hasKey(seatKey)) {
             redisTemplate.opsForValue().increment(seatKey);
         }
 
         booking.setStatus(BookingStatus.CANCELLED);
-        return bookingRepository.save(booking);
+        Booking savedBooking = bookingRepository.save(booking);
+
+        String message = String.format(
+            "%s cancelled their booking on your ride from %s to %s.",
+            booking.getRider().getName(),
+            ride.getFromLocation(),
+            ride.getToLocation()
+        );
+        notificationProducer.sendBookingNotification(message);
+        messagingTemplate.convertAndSend(
+            "/topic/driver/" + ride.getDriver().getId() + "/notifications",
+            message
+        );
+
+        return savedBooking;
     }
 
-    // Confirm a booking (by driver)
+    public void cancelAllBookingsForRide(Long rideId) {
+        List<Booking> bookings = bookingRepository.findByRideId(rideId);
+
+        for (Booking booking : bookings) {
+            if (booking.getStatus() == BookingStatus.PENDING || booking.getStatus() == BookingStatus.CONFIRMED) {
+                booking.setStatus(BookingStatus.CANCELLED);
+                bookingRepository.save(booking);
+
+                String message = String.format(
+                    "Sorry, %s cancelled the ride from %s to %s. Your booking was cancelled.",
+                    booking.getRide().getDriver().getName(),
+                    booking.getRide().getFromLocation(),
+                    booking.getRide().getToLocation()
+                );
+
+                notificationProducer.sendBookingNotification(message);
+                messagingTemplate.convertAndSend(
+                    "/topic/rider/" + booking.getRider().getId() + "/notifications",
+                    message
+                );
+            }
+        }
+    }
+
     public Booking confirmBooking(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
             .orElseThrow(() ->
                 new RuntimeException("Booking not found!"));
         booking.setStatus(BookingStatus.CONFIRMED);
-        return bookingRepository.save(booking);
+        Booking savedBooking = bookingRepository.save(booking);
+
+        String message = String.format(
+            "%s confirmed your seat on the ride from %s to %s!",
+            booking.getRide().getDriver().getName(),
+            booking.getRide().getFromLocation(),
+            booking.getRide().getToLocation()
+        );
+
+        notificationProducer.sendBookingNotification(message);
+
+        messagingTemplate.convertAndSend(
+            "/topic/rider/" + booking.getRider().getId() + "/notifications",
+            message
+        );
+
+        return savedBooking;
     }
 }

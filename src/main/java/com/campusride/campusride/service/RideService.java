@@ -35,10 +35,8 @@ public class RideService {
         ride.setAvailableSeats(ride.getTotalSeats());
         ride.setStatus(RideStatus.SCHEDULED);
 
-        // Save ride to database first
         Ride savedRide = rideRepository.save(ride);
 
-        // Initialize seats in Redis!
         bookingService.initializeSeatsInRedis(
             savedRide.getId(),
             savedRide.getTotalSeats()
@@ -59,15 +57,16 @@ public class RideService {
         );
     }
 
-    // Search nearby rides
-    public List<Ride> searchNearbyRides(String toLocation,
-                                        Double lat,
-                                        Double lng,
+    // Search rides along the route corridor
+    public List<Ride> searchNearbyRides(Double pickupLat,
+                                        Double pickupLng,
+                                        Double dropLat,
+                                        Double dropLng,
                                         Double radius) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime endTime = now.plusHours(24);
-        return rideRepository.findNearbyRides(
-            toLocation, lat, lng, radius, now, endTime
+        return rideRepository.findRidesOnRoute(
+            pickupLat, pickupLng, dropLat, dropLng, radius, now, endTime
         );
     }
 
@@ -83,6 +82,7 @@ public class RideService {
         }
 
         ride.setStatus(RideStatus.CANCELLED);
+        bookingService.cancelAllBookingsForRide(rideId);
         return rideRepository.save(ride);
     }
 
